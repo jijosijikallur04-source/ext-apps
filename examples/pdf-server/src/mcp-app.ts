@@ -5006,6 +5006,37 @@ async function processCommands(commands: PdfCommand[]): Promise<void> {
             .catch(() => {});
         }
         break;
+      case "get_current_pdf":
+        // Same await-before-next-poll discipline as get_pages/save_as.
+        try {
+          const pdfBytes = await getAnnotatedPdfBytes();
+          const hasEdits = hasInViewerEdits();
+          await app.callServerTool({
+            name: "submit_current_pdf",
+            arguments: {
+              requestId: cmd.requestId,
+              data: uint8ArrayToBase64(pdfBytes),
+              fileName: currentPdfFileName(hasEdits),
+              hasEdits,
+            },
+          });
+          log.info(`get_current_pdf: submitted ${pdfBytes.length} bytes`);
+        } catch (err) {
+          log.error(
+            "get_current_pdf: failed to build bytes — submitting error:",
+            err,
+          );
+          await app
+            .callServerTool({
+              name: "submit_current_pdf",
+              arguments: {
+                requestId: cmd.requestId,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            })
+            .catch(() => {});
+        }
+        break;
       case "get_viewer_state":
         // Same await-before-next-poll discipline as get_pages/save_as.
         try {
@@ -5062,13 +5093,14 @@ async function processCommands(commands: PdfCommand[]): Promise<void> {
   }
 
   // Persist after processing batch — but only if anything mutated.
-  // get_pages / save_as / file_changed are read-only; writing localStorage
-  // and recomputing the diff for them is wasted work.
+  // get_pages / save_as / get_current_pdf / file_changed are read-only;
+  // writing localStorage and recomputing the diff for them is wasted work.
   if (
     commands.some(
       (c) =>
         c.type !== "get_pages" &&
         c.type !== "save_as" &&
+        c.type !== "get_current_pdf" &&
         c.type !== "file_changed",
     )
   ) {
