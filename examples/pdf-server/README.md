@@ -198,6 +198,16 @@ When roots are ignored the server logs:
 
 ¹ stdio only by default; in HTTP mode requires `--enable-interact` — see [Deployment](#deployment).
 
+### App tools
+
+The viewer also registers tools on the view itself (via `app.registerTool`), for hosts that list and call view tools directly. These mirror the `interact` actions (navigate, search, zoom, annotations, form fill, `get_text`, `get_screenshot`, …) and add:
+
+| Tool              | Purpose                                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `get_current_pdf` | Return the current document — with annotations and form fills applied — as an embedded PDF resource (no save to disk needed) |
+
+`get_current_pdf` is the viewer's "get output file" tool: an app that produces or edits a document can expose its current output as an embedded resource in a tool result, so the model can retrieve the file whenever it needs it (as opposed to `ui/download-file`, which saves to the user's disk without the model seeing the bytes).
+
 ## Example Prompts
 
 After the model calls `display_pdf`, it receives the `viewUUID` and a description of all capabilities. Here are example prompts and follow-ups that exercise annotation features:
