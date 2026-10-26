@@ -2164,17 +2164,33 @@ Key considerations:
 - Audit trail for app tool invocations
 - User confirmation for tools with side effects
 
-#### Relation to WebMCP
+#### WebMCP Interoperability
 
-This feature is inspired by [WebMCP](https://github.com/webmachinelearning/webmcp) (W3C incubation), which proposes allowing web pages to register JavaScript functions as tools via `navigator.modelContext.registerTool()`.
+App-provided tools and [WebMCP](https://webmachinelearning.github.io/webmcp/) (W3C incubation, `document.modelContext.registerTool()`) are two surfaces for the same capability: a web page exposing JavaScript functions as tools. This specification treats the two surfaces as equivalent and interoperable. Neither deprecates the other: a View MAY expose tools through either surface, and Hosts and SDKs MUST NOT require one surface over the other.
 
-Key differences:
-- **WebMCP**: General web pages, browser API, manifest-based discovery
-- **This spec**: MCP Apps, standard MCP messages, capability-based negotiation
+**SDK mirroring (Apps → WebMCP).** The SDK SHOULD mirror tools registered with `registerTool()` into `document.modelContext` when the document provides one, so a WebMCP-enabled Host (one that consumes `document.modelContext`, natively or through its own machinery) discovers them without speaking the App `tools/list` channel. The `tools/list` / `tools/call` wire path is unaffected: mirroring is additive. For native registration to succeed inside a sandboxed iframe, the embedder MUST delegate the `tools` [Permissions Policy feature](https://webmachinelearning.github.io/webmcp/#permissions-policy) to the frame chain (e.g. `allow="tools"` on the iframe); where it is not delegated, registration fails and the tool remains available over `tools/list` only.
 
-Similar to WebMCP but without turning the App (embedded page) into an MCP server - apps register tools within the App/Host architecture.
+**SDK bridging (WebMCP → Apps).** The SDK SHOULD serve tools the page registered on `document.modelContext` over the App `tools/list` / `tools/call` channel, declaring the `tools` app capability on the View's behalf when the page carries WebMCP tools at connect time, and relaying `toolchange` as `notifications/tools/list_changed`, so WebMCP-authored Views work on Hosts that do not provide WebMCP. A View that must also run where neither the browser nor the Host provides `document.modelContext` can install the SDK's polyfill (`installWebMcpPolyfill()`) before registering tools; a Host MAY instead provide `document.modelContext` itself.
 
-See [ext-apps#35](https://github.com/modelcontextprotocol/ext-apps/issues/35) for discussion.
+**No double exposure.**
+- The SDK MUST NOT echo a tool back onto the surface it came from: a tool mirrored into `document.modelContext` is not re-served from there over `tools/list` (tools registered with `registerTool()` shadow same-named WebMCP entries), and a bridged WebMCP tool is not re-mirrored into `document.modelContext`.
+- A Host able to discover a View's tools both through WebMCP and through `tools/list` MUST consume exactly one surface per View — they expose the same tools. Consuming native WebMCP where present is RECOMMENDED.
+- The SDK MUST NOT serve tools that the implementation attributes to another frame: native `getTools()` also returns tools of the page's other frames, which are not the View's to expose. (A descriptor that carries no frame attribution cannot be told apart and is served.)
+
+**WebMCP ↔ MCP mapping.** A WebMCP tool descriptor maps to an MCP `Tool` as follows; a descriptor with an invalid `name` or a non-string `description` is omitted from `tools/list`:
+
+| WebMCP descriptor | MCP `Tool` |
+| ----------------- | ---------- |
+| `name` (`[A-Za-z0-9_.-]{1,128}`) | `name`, unchanged |
+| `title` | `title`, when a non-empty string |
+| `description` | `description` (required string) |
+| `inputSchema` | `inputSchema`, with `type: "object"` enforced; `{ "type": "object", "properties": {} }` when absent |
+| `annotations.readOnlyHint` | `annotations.readOnlyHint`; other annotations are not carried |
+| — | no `outputSchema` |
+
+A tool's return value `v` becomes `{ "content": [], "structuredContent": v }` when `v` is a plain object, and `{ "content": [], "structuredContent": { "result": v } }` otherwise; a thrown error becomes `{ "content": [{ "type": "text", "text": "<message>" }], "isError": true }`. In the mirrored direction, a `CallToolResult` with `isError: true` surfaces to WebMCP callers as a thrown error carrying the result's text, and otherwise resolves with `structuredContent` when present, else `{ "content": [...] }`.
+
+See [ext-apps#35](https://github.com/modelcontextprotocol/ext-apps/issues/35), [ext-apps#796](https://github.com/modelcontextprotocol/ext-apps/issues/796) and [ext-apps#797](https://github.com/modelcontextprotocol/ext-apps/issues/797) for discussion.
 
 ### Client\<\>Server Capability Negotiation
 
