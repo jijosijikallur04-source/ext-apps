@@ -1862,3 +1862,82 @@ describe.skipIf(!viewIsBuilt)("splitAppTools view config injection", () => {
     expect(idx).toBeLessThan(html.indexOf("<script type"));
   });
 });
+
+describe("interact annotation schema validation", () => {
+  async function callInteract(args: Record<string, unknown>) {
+    const server = createServer({ enableInteract: true });
+    const client = new Client({ name: "t", version: "1" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(st), client.connect(ct)]);
+    try {
+      return await client.callTool({
+        name: "interact",
+        arguments: {
+          viewUUID: "11111111-2222-3333-4444-555555555555",
+          ...args,
+        },
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  }
+
+  it("rejects a stamp without label, naming the field", async () => {
+    const result = await callInteract({
+      action: "add_annotations",
+      annotations: [
+        // The classic mix-up: `content` (note/freetext's field) instead of
+        // `label` — previously this rendered as the literal text "undefined".
+        {
+          id: "s1",
+          type: "stamp",
+          page: 1,
+          x: 100,
+          y: 100,
+          content: "APPROVED",
+        },
+      ],
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ text?: string }>)[0]?.text ?? "";
+    expect(text).toContain("annotations[0] (stamp)");
+    expect(text).toContain("label");
+  });
+
+  it("accepts a valid stamp and queues it", async () => {
+    const result = await callInteract({
+      action: "add_annotations",
+      annotations: [
+        { id: "s1", type: "stamp", page: 1, x: 100, y: 100, label: "APPROVED" },
+      ],
+    });
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as Array<{ text?: string }>)[0]?.text ?? "";
+    expect(text).toContain("Queued");
+  });
+
+  it("rejects an unknown annotation type", async () => {
+    const result = await callInteract({
+      action: "add_annotations",
+      annotations: [{ id: "x1", type: "sparkles", page: 1 }],
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  it("update_annotations accepts a partial def but still requires id", async () => {
+    const ok = await callInteract({
+      action: "update_annotations",
+      annotations: [{ id: "s1", type: "stamp", label: "REJECTED" }],
+    });
+    expect(ok.isError).toBeFalsy();
+
+    const bad = await callInteract({
+      action: "update_annotations",
+      annotations: [{ type: "stamp", label: "REJECTED" }],
+    });
+    expect(bad.isError).toBe(true);
+    const text = (bad.content as Array<{ text?: string }>)[0]?.text ?? "";
+    expect(text).toContain("id");
+  });
+});
