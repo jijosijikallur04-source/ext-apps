@@ -149,8 +149,8 @@ export function getWebMcpConsumer(): WebMcpConsumer | undefined {
 export async function ownWebMcpTools(
   consumer: WebMcpConsumer,
 ): Promise<WebMcpRegisteredTool[]> {
-  const view = (globalThis as { document?: { defaultView?: unknown } })
-    .document?.defaultView;
+  const view = (globalThis as { document?: { defaultView?: unknown } }).document
+    ?.defaultView;
   return (await consumer.getTools()).filter((tool) => {
     try {
       return tool.window === undefined || tool.window === view;
