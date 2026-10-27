@@ -109,18 +109,17 @@ async function connectPair(
     () => resolveInitialized(),
   );
 
+  connected.push({ app, server });
   await server.connect(serverTransport);
   await app.connect(appTransport);
   await initialized;
 
-  const pair = {
+  return {
     app,
     server,
     sentByApp,
     initializeParams: () => appCapabilities,
   };
-  connected.push(pair);
-  return pair;
 }
 
 describe("WebMCP interop: registerTool mirrored into document.modelContext", () => {
@@ -188,23 +187,6 @@ describe("WebMCP interop: registerTool mirrored into document.modelContext", () 
       doc.modelContext.executeTool({ name: "fail" }),
     ).rejects.toThrow("boom");
   });
-
-  it("does not mirror when mirrorToolsToWebMcp is false", async () => {
-    const doc = fakeDocument();
-    setDocument(doc);
-
-    const app = new App(
-      { name: "view-app", version: "1.0.0" },
-      {},
-      { autoResize: false, mirrorToolsToWebMcp: false },
-    );
-    app.registerTool("hidden", { description: "Not mirrored" }, async () => ({
-      content: [],
-    }));
-    await Bun.sleep(0);
-
-    expect(await doc.modelContext.getTools()).toEqual([]);
-  });
 });
 
 describe("WebMCP interop: page-registered tools served over tools/list and tools/call", () => {
@@ -215,7 +197,9 @@ describe("WebMCP interop: page-registered tools served over tools/list and tools
       name: "page-tool",
       description: "Registered via WebMCP",
       inputSchema: { type: "object", properties: { n: { type: "number" } } },
-      execute: async (input: { n?: number }) => ({ doubled: (input.n ?? 0) * 2 }),
+      execute: async (input: { n?: number }) => ({
+        doubled: (input.n ?? 0) * 2,
+      }),
     });
 
     const pair = await connectPair();
@@ -351,7 +335,7 @@ describe("WebMCP interop: page-registered tools served over tools/list and tools
     ).toEqual(["first", "second"]);
   });
 
-  it("does not bridge when bridgeWebMcpTools is false", async () => {
+  it("declares no tools capability when webMcpBridge is false", async () => {
     const doc = fakeDocument();
     setDocument(doc);
     await doc.modelContext.registerTool({
@@ -364,9 +348,45 @@ describe("WebMCP interop: page-registered tools served over tools/list and tools
       new App(
         { name: "view-app", version: "1.0.0" },
         {},
-        { autoResize: false, bridgeWebMcpTools: false },
+        { autoResize: false, webMcpBridge: false },
       ),
     );
     expect(pair.initializeParams()?.tools).toBeUndefined();
+  });
+
+  it("disables both directions when webMcpBridge is false", async () => {
+    const doc = fakeDocument();
+    setDocument(doc);
+    await doc.modelContext.registerTool({
+      name: "page-tool",
+      description: "Registered via WebMCP",
+      execute: async () => "ok",
+    });
+
+    const app = new App(
+      { name: "view-app", version: "1.0.0" },
+      {},
+      { autoResize: false, webMcpBridge: false },
+    );
+    app.registerTool("own-tool", { description: "Registered" }, async () => ({
+      content: [],
+    }));
+
+    const pair = await connectPair(app);
+
+    // Not bridged: only the registered tool is served over tools/list.
+    const listed = await pair.server.request({
+      method: "tools/list",
+      params: {},
+    });
+    expect(listed.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "own-tool",
+    ]);
+
+    // Not mirrored: the model context still carries only the page's tool.
+    await Bun.sleep(0);
+    expect(
+      (await doc.modelContext.getTools()).map((tool) => tool.name),
+    ).toEqual(["page-tool"]);
   });
 });

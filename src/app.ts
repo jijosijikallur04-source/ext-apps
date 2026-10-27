@@ -179,26 +179,27 @@ export type AppOptions = Omit<ProtocolOptions, "supportedProtocolVersions"> & {
    */
   allowUnsafeEval?: boolean;
   /**
-   * Mirror tools registered with {@link App.registerTool `registerTool`} into
-   * `document.modelContext` ([WebMCP](https://webmachinelearning.github.io/webmcp/))
-   * when the document provides one, so WebMCP-enabled hosts discover them
-   * without speaking the Apps `tools/list` channel. The `tools/list` /
-   * `tools/call` wire path is unaffected either way.
+   * Bridge tools between the Apps SDK and
+   * [WebMCP](https://webmachinelearning.github.io/webmcp/), in both
+   * directions:
+   *
+   * - tools registered with {@link App.registerTool `registerTool`} are
+   *   mirrored into `document.modelContext` when the document provides one,
+   *   so WebMCP-enabled hosts discover them without speaking the Apps
+   *   `tools/list` channel (the `tools/list` / `tools/call` wire path is
+   *   unaffected either way);
+   * - tools the page registered on `document.modelContext` are served over
+   *   the Apps `tools/list` / `tools/call` channel, so WebMCP-authored Views
+   *   work on MCP Apps hosts that do not provide WebMCP themselves. Tools
+   *   registered with {@link App.registerTool `registerTool`} win on name
+   *   collisions, and tools the {@link App `App`} itself mirrored into
+   *   WebMCP are never echoed back.
+   *
+   * Pass `false` to disable the bridge.
    *
    * @default true
    */
-  mirrorToolsToWebMcp?: boolean;
-  /**
-   * Serve tools the page registered on `document.modelContext` (WebMCP) over
-   * the Apps `tools/list` / `tools/call` channel, so WebMCP-authored Views
-   * work on MCP Apps hosts that do not provide WebMCP themselves. Tools
-   * registered with {@link App.registerTool `registerTool`} win on name
-   * collisions, and tools the {@link App `App`} itself mirrored into WebMCP
-   * are never echoed back.
-   *
-   * @default true
-   */
-  bridgeWebMcpTools?: boolean;
+  webMcpBridge?: boolean;
 };
 
 type RequestHandlerExtra = BaseContext;
@@ -789,7 +790,7 @@ export class App extends Protocol<BaseContext> {
    * echoed back.
    */
   private async listWebMcpBridgedTools(): Promise<Tool[]> {
-    if (this.options?.bridgeWebMcpTools === false) return [];
+    if (this.options?.webMcpBridge === false) return [];
     const consumer = getWebMcpConsumer();
     if (!consumer) return [];
     try {
@@ -814,7 +815,7 @@ export class App extends Protocol<BaseContext> {
     params: CallToolRequest["params"],
     signal?: AbortSignal,
   ): Promise<CallToolResult | undefined> {
-    if (this.options?.bridgeWebMcpTools === false) return undefined;
+    if (this.options?.webMcpBridge === false) return undefined;
     if (this._registeredTools[params.name]) return undefined;
     const consumer = getWebMcpConsumer();
     if (!consumer) return undefined;
@@ -863,13 +864,13 @@ export class App extends Protocol<BaseContext> {
    * under `name` in line with its current state: (re-)registered while
    * present and enabled, unregistered otherwise. A no-op when the document
    * provides no model context — the tool is still served over `tools/list` —
-   * or when `mirrorToolsToWebMcp` is `false`.
+   * or when {@link AppOptions.webMcpBridge `webMcpBridge`} is `false`.
    */
   private syncWebMcpMirror(name: string): void {
     this._webMcpMirrors.get(name)?.abort();
     this._webMcpMirrors.delete(name);
 
-    if (this.options?.mirrorToolsToWebMcp === false) return;
+    if (this.options?.webMcpBridge === false) return;
     const tool = this._registeredTools[name];
     if (!tool?.enabled) return;
     const modelContext = getWebMcpModelContext();
@@ -951,7 +952,7 @@ export class App extends Protocol<BaseContext> {
    * so a host learns when the page's own WebMCP tools come and go.
    */
   private watchWebMcpToolChanges(): void {
-    if (this.options?.bridgeWebMcpTools === false) return;
+    if (this.options?.webMcpBridge === false) return;
     const consumer = getWebMcpConsumer();
     if (!consumer || consumer === this._webMcpWatched?.consumer) return;
     const listener = () => {
@@ -2279,7 +2280,7 @@ export class App extends Protocol<BaseContext> {
     // answer tools/* themselves (oncalltool/onlisttools assigned directly)
     // are left alone.
     if (
-      this.options?.bridgeWebMcpTools !== false &&
+      this.options?.webMcpBridge !== false &&
       (this._toolHandlersInitialized || !(this.oncalltool || this.onlisttools))
     ) {
       const consumer = getWebMcpConsumer();
