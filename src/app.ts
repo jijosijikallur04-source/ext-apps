@@ -38,7 +38,6 @@ export type {
   LegacyRequestHandlerSetter,
 } from "./legacy-handlers.js";
 export { EventDispatcher } from "./events.js";
-export { installWebMcpPolyfill } from "./webmcp-polyfill.js";
 
 import { PostMessageTransport } from "./message-transport.js";
 import {

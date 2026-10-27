@@ -101,7 +101,7 @@ function readModelContext(): unknown {
 /**
  * The document's WebMCP `modelContext` producer API, if the browser provides
  * one natively, the host injected a polyfill into the View's HTML, or the
- * page installed {@link installWebMcpPolyfill `installWebMcpPolyfill`}.
+ * page installed a polyfill of its own.
  *
  * @internal
  */

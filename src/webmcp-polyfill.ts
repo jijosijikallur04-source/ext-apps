@@ -4,14 +4,13 @@
  * for tools registered by this page to be read back and executed. No
  * cross-frame support: `exposedTo` is accepted and ignored.
  *
- * A WebMCP-authored View calls this before registering tools, so it also runs
- * where neither the browser nor the Host provides `document.modelContext`;
- * the {@link App `App`} then serves the registered tools to MCP Apps hosts
- * over `tools/list` / `tools/call`. A native `document.modelContext` (or a
- * polyfill the Host injected) wins: installing over one is a no-op, except
- * that this polyfill replaces an earlier instance of itself, since
- * `document.open()` keeps expando properties of a document that is written
- * again.
+ * Not part of the public API: it backs this SDK's own tests of the
+ * WebMCP → Apps bridge. A WebMCP-authored View that must run where neither
+ * the browser nor the Host provides `document.modelContext` brings its own
+ * polyfill. A native `document.modelContext` (or a polyfill the Host
+ * injected) wins: installing over one is a no-op, except that this polyfill
+ * replaces an earlier instance of itself, since `document.open()` keeps
+ * expando properties of a document that is written again.
  */
 
 import { WEBMCP_TOOL_NAME } from "./webmcp.js";
@@ -36,6 +35,8 @@ interface PolyfillTool {
  * Install the WebMCP polyfill on `doc` (the current document by default).
  * A no-op where `document.modelContext` already exists, unless that is an
  * earlier instance of this polyfill.
+ *
+ * @internal
  */
 export function installWebMcpPolyfill(
   doc: Document = (globalThis as unknown as { document: Document }).document,
