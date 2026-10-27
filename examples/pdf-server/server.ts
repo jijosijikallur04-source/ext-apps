@@ -1263,6 +1263,17 @@ export interface CreateServerOptions {
    * in a floating bubble). Toggled by the `--debug` CLI flag.
    */
   debug?: boolean;
+
+  /**
+   * Register the view's actions as separate app tools (navigate, search,
+   * add_annotations, ...) instead of the default single `interact` app
+   * tool. Hosts that ask the user to approve each app tool separately
+   * show one approval card per tool, so the single-tool default keeps
+   * that to one; pass the `--split-app-tools` CLI flag to get the
+   * per-action tools back. The choice is injected into the served view
+   * HTML, where src/mcp-app.ts reads it before connecting.
+   */
+  splitAppTools?: boolean;
 }
 
 // Module-level singletons so they survive across createServer() calls — in
@@ -1270,10 +1281,12 @@ export interface CreateServerOptions {
 // per-instance caches are discarded immediately.
 const sharedPdfCache = createPdfCache();
 let cachedAppHtml: string | undefined;
+let cachedSplitAppHtml: string | undefined;
 
 export function createServer(options: CreateServerOptions = {}): McpServer {
   const { enableInteract = false, useClientRoots = false } = options;
   const debug = options.debug ?? false;
+  const splitAppTools = options.splitAppTools ?? false;
   const disableInteract = !enableInteract;
   const server = new McpServer({ name: "PDF Server", version: "2.0.0" });
 
@@ -2423,7 +2436,7 @@ Example — add a signature image and a stamp, then screenshot to verify:
 
 **TEXT/SCREENSHOTS**:
 • get_text: extract text from pages. Optional \`page\` for single page, or \`intervals\` for ranges [{start?,end?}]. Max 20 pages.
-• get_screenshot: capture a single page as PNG image. Requires \`page\`.
+• get_screenshot: capture a single page as a JPEG image. Requires \`page\`.
 • get_viewer_state: snapshot of the live viewer — JSON {currentPage, pageCount, zoom, displayMode, selectedAnnotationIds, selection:{text,contextBefore,contextAfter,boundingRect}|null}. Use this to read what the user has selected or which page they're on.
 
 **FORMS** — fill_form: fill fields with \`fields\` array of {name, value}.
@@ -2917,12 +2930,35 @@ Example — add a signature image and a stamp, then screenshot to verify:
         path.join(DIST_DIR, "mcp-app.html"),
         "utf-8",
       ));
+      // The view decides its app-tool surface (single `interact` vs one
+      // tool per action) at load time, before connect(), so the choice
+      // rides in the served HTML rather than in a tool result. The
+      // injected variant is cached like the base HTML — the bundle is
+      // several MB and stateless HTTP mode reads it per request.
+      let servedHtml = html;
+      if (splitAppTools) {
+        if (cachedSplitAppHtml === undefined) {
+          const injected = html.replace(
+            /<head(\s[^>]*)?>/i,
+            (headTag) =>
+              `${headTag}\n    <script>globalThis.PDF_APP_CONFIG = { splitAppTools: true };</script>`,
+          );
+          if (injected === html) {
+            console.error(
+              "[pdf-server] --split-app-tools: no <head> tag found in the view HTML; " +
+                "falling back to the single interact app tool",
+            );
+          }
+          cachedSplitAppHtml = injected;
+        }
+        servedHtml = cachedSplitAppHtml;
+      }
       return {
         contents: [
           {
             uri: RESOURCE_URI,
             mimeType: RESOURCE_MIME_TYPE,
-            text: html,
+            text: servedHtml,
             _meta: {
               ui: {
                 permissions: { clipboardWrite: {} },

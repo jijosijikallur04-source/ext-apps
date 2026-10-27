@@ -1815,3 +1815,50 @@ describe("interact tool", () => {
     }, 15_000);
   });
 });
+
+// The served view is the built bundle, which not every CI job builds
+// (npm-publish's test job runs the unit suite without building examples).
+const viewIsBuilt = fs.existsSync(
+  path.join(import.meta.dir, "dist", "mcp-app.html"),
+);
+
+describe.skipIf(!viewIsBuilt)("splitAppTools view config injection", () => {
+  async function readViewHtml(options?: {
+    splitAppTools?: boolean;
+  }): Promise<string> {
+    const server = createServer(options);
+    const client = new Client({ name: "t", version: "1" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(st), client.connect(ct)]);
+    try {
+      const res = await client.readResource({
+        uri: "ui://pdf-viewer/mcp-app.html",
+      });
+      const first = res.contents[0] as { text?: string };
+      return first.text ?? "";
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  }
+
+  it("serves the view unmodified by default", async () => {
+    const html = await readViewHtml();
+    expect(html).toContain("<head");
+    // The bundled view code mentions PDF_APP_CONFIG (it reads the config),
+    // so assert specifically that the server injected nothing.
+    expect(html).not.toContain(
+      "globalThis.PDF_APP_CONFIG = { splitAppTools: true }",
+    );
+  });
+
+  it("injects the split-app-tools config into <head> when enabled", async () => {
+    const html = await readViewHtml({ splitAppTools: true });
+    const idx = html.indexOf(
+      "globalThis.PDF_APP_CONFIG = { splitAppTools: true }",
+    );
+    expect(idx).toBeGreaterThan(-1);
+    // Injected right after <head>, before any module script runs.
+    expect(idx).toBeLessThan(html.indexOf("<script type"));
+  });
+});
