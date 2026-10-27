@@ -6,7 +6,8 @@ import {
 } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 
-import { App, installWebMcpPolyfill } from "./app.js";
+import { App } from "./app.js";
+import { installWebMcpPolyfill } from "./webmcp-polyfill.js";
 import {
   LATEST_PROTOCOL_VERSION,
   McpUiInitializeRequestSchema,
