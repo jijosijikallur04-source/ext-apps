@@ -4287,14 +4287,14 @@ canvasContainerEl.addEventListener("touchcancel", () => {
 function parseToolResult(result: CallToolResult): {
   url: string;
   title?: string;
-  pageCount: number;
+  viewUUID?: string;
   initialPage: number;
   totalBytes: number;
 } | null {
   return result.structuredContent as {
     url: string;
     title?: string;
-    pageCount: number;
+    viewUUID?: string;
     initialPage: number;
     totalBytes: number;
   } | null;
@@ -4682,18 +4682,25 @@ app.ontoolresult = async (result: CallToolResult) => {
 
   pdfUrl = parsed.url;
   pdfTitle = parsed.title;
-  // Note: pageCount may not be accurate until document loads
-  totalPages = parsed.pageCount || 1;
-  viewUUID = result._meta?.viewUUID ? String(result._meta.viewUUID) : undefined;
+  // Placeholder until the document loads — the tool result carries no page
+  // count since the server stopped pre-parsing the PDF.
+  totalPages = 1;
+  // Prefer _meta, but fall back to structuredContent: the server sends
+  // viewUUID in both, and some hosts drop _meta from replayed tool results.
+  viewUUID = result._meta?.viewUUID
+    ? String(result._meta.viewUUID)
+    : parsed.viewUUID
+      ? String(parsed.viewUUID)
+      : undefined;
   interactEnabled = result._meta?.interactEnabled === true;
   fileWritable = result._meta?.writable === true;
   // Debug bubble: server only emits _debug when --debug is set.
   if (result._meta?._debug !== undefined) showDebugBubble(result._meta._debug);
 
-  // Restore saved page or use initial page
+  // Restore saved page or use initial page. The saved page can't be
+  // bounds-checked yet; it's clamped once the document loads below.
   const savedPage = loadSavedPage();
-  currentPage =
-    savedPage && savedPage <= parsed.pageCount ? savedPage : parsed.initialPage;
+  currentPage = savedPage ?? parsed.initialPage;
 
   log.info("URL:", pdfUrl, "Starting at page:", currentPage);
 
@@ -4704,6 +4711,8 @@ app.ontoolresult = async (result: CallToolResult) => {
     const { document, totalBytes } = await loadPdfProgressively(pdfUrl);
     pdfDocument = document;
     totalPages = document.numPages;
+    // A restored page may point past the end of a changed document.
+    currentPage = Math.max(1, Math.min(currentPage, totalPages));
 
     log.info("PDF loaded, pages:", totalPages, "bytes:", totalBytes);
 
