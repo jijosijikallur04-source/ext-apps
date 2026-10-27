@@ -1,4 +1,4 @@
-# Example: Basic Host
+#host: Basic Host#
 
 A reference implementation showing how to build an MCP host application that connects to MCP servers and renders tool UIs in a secure sandbox.
 
