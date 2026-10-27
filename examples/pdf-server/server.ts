@@ -195,6 +195,11 @@ const PageInterval = z.object({
 // poll queue. Defined once in src/commands.ts; both sides import it.
 // (`import type` → no pdf-lib bundled into the server.)
 import type { PdfCommand } from "./src/commands.js";
+import {
+  AnnotationDefSchema,
+  AnnotationUpdateSchema,
+  formatAnnotationIssues,
+} from "./src/annotation-schemas.js";
 export type { PdfCommand };
 
 // =============================================================================
@@ -2043,6 +2048,24 @@ URL: ${normalized}`,
               ],
               isError: true,
             };
+          // Enforce the per-type contract (e.g. a stamp REQUIRES `label`;
+          // without this a stamp sent with `content` instead rendered as
+          // the literal text "undefined").
+          for (let i = 0; i < annotations.length; i++) {
+            const parsed = AnnotationDefSchema.safeParse(annotations[i]);
+            if (!parsed.success) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `add_annotations: ${formatAnnotationIssues(i, (annotations[i] as { type?: unknown }).type, parsed.error)}`,
+                  },
+                ],
+                isError: true,
+              };
+            }
+            annotations[i] = parsed.data;
+          }
           // Resolve image annotations: fetch imageUrl → imageData, auto-detect dimensions.
           // Rejection (path not allowed, not https, fetch failed) surfaces as
           // a tool error so the model sees it — don't silently skip.
@@ -2065,9 +2088,9 @@ URL: ${normalized}`,
           }
           enqueueCommand(uuid, {
             type: "add_annotations",
-            // resolveImageAnnotation populates optional x/y/width/height;
-            // input is validated as Record<string,any>[] so this cast is
-            // the wire-protocol promise, not a compiler guarantee.
+            // Schema-validated above; the residual gap this cast bridges
+            // is the image variant's optional x/y/width/height, which
+            // resolveImageAnnotation has just filled in.
             annotations: annotations as Extract<
               PdfCommand,
               { type: "add_annotations" }
@@ -2086,6 +2109,21 @@ URL: ${normalized}`,
               ],
               isError: true,
             };
+          for (let i = 0; i < annotations.length; i++) {
+            const parsed = AnnotationUpdateSchema.safeParse(annotations[i]);
+            if (!parsed.success) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `update_annotations: ${formatAnnotationIssues(i, (annotations[i] as { type?: unknown }).type, parsed.error)}`,
+                  },
+                ],
+                isError: true,
+              };
+            }
+            annotations[i] = parsed.data;
+          }
           enqueueCommand(uuid, {
             type: "update_annotations",
             annotations: annotations as Extract<
@@ -2409,11 +2447,11 @@ IMPORTANT: viewUUID must be the exact UUID returned by display_pdf (e.g. "a1b2c3
 - For highlights/underlines, each rect's y is the TOP of the highlighted region.
 
 Annotation types:
-• highlight: rects:[{x,y,width,height}], color?, content? • underline: rects:[{x,y,w,h}], color?
-• strikethrough: rects:[{x,y,w,h}], color? • note: x, y, content, color?
+• highlight: rects:[{x,y,width,height}], color?, content? • underline: rects:[{x,y,width,height}], color?
+• strikethrough: rects:[{x,y,width,height}], color? • note: x, y, content, color?
 • rectangle: x, y, width, height, color?, fillColor?, rotation? • circle: x, y, width, height, color?, fillColor?
 • line: x1, y1, x2, y2, color? • freetext: x, y, content, fontSize?, color?
-• stamp: x, y, label (any text, e.g. APPROVED, DRAFT, CONFIDENTIAL), color?, rotation?
+• stamp: x, y, label (REQUIRED — the stamp's text, e.g. APPROVED, DRAFT, CONFIDENTIAL), color?, rotation?
 • image: imageUrl (required), x?, y?, width?, height?, mimeType?, rotation?, aspect? — places an image (signature, logo, etc.) on the page. Pass a local file path or HTTPS URL (NO data: URIs, NO base64). Width/height auto-detected if omitted. Users can also drag & drop images directly onto the viewer.
 
 TIP: For text annotations, prefer highlight_text (auto-finds text) over manual rects.

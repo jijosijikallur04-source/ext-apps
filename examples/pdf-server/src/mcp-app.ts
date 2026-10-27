@@ -17,6 +17,11 @@ import type {
   ContentBlock,
 } from "@modelcontextprotocol/client";
 import { z } from "zod";
+
+import {
+  AnnotationDefSchema,
+  AnnotationUpdateSchema,
+} from "./annotation-schemas.js";
 import * as pdfjsLib from "pdfjs-dist";
 import { AnnotationLayer, AnnotationMode, TextLayer } from "pdfjs-dist";
 import "pdfjs-dist/web/pdf_viewer.css";
@@ -1785,7 +1790,7 @@ function paintAnnotationsOnCanvas(
         ctx.save();
         ctx.fillStyle = color;
         ctx.font = `${(def.fontSize || 12) * viewport.scale}px Helvetica, Arial, sans-serif`;
-        ctx.fillText(def.content, pos.left, pos.top);
+        ctx.fillText(String(def.content ?? ""), pos.left, pos.top);
         ctx.restore();
         break;
       }
@@ -1800,7 +1805,9 @@ function paintAnnotationsOnCanvas(
         ctx.lineWidth = 3;
         ctx.globalAlpha = 0.6;
         ctx.font = `bold ${24 * viewport.scale}px Helvetica, Arial, sans-serif`;
-        const metrics = ctx.measureText(def.label);
+        // Legacy persisted defs can lack label (pre-schema-validation data).
+        const stampLabel = String(def.label ?? "STAMP");
+        const metrics = ctx.measureText(stampLabel);
         const pad = 8 * viewport.scale;
         ctx.strokeRect(
           -pad,
@@ -1808,7 +1815,7 @@ function paintAnnotationsOnCanvas(
           metrics.width + pad * 2,
           24 * viewport.scale + pad * 2,
         );
-        ctx.fillText(def.label, 0, 0);
+        ctx.fillText(stampLabel, 0, 0);
         ctx.restore();
         break;
       }
@@ -2073,7 +2080,7 @@ function renderNoteAnnotation(
 
   const tooltip = document.createElement("div");
   tooltip.className = "annotation-tooltip";
-  tooltip.textContent = def.content;
+  tooltip.textContent = String(def.content ?? "");
   el.appendChild(tooltip);
 
   return el;
@@ -2113,7 +2120,7 @@ function renderFreetextAnnotation(
   el.style.top = `${pos.top}px`;
   el.style.fontSize = `${(def.fontSize || 12) * viewport.scale}px`;
   if (def.color) el.style.color = def.color;
-  el.textContent = def.content;
+  el.textContent = String(def.content ?? "");
   return el;
 }
 
@@ -2132,7 +2139,8 @@ function renderStampAnnotation(
     el.style.transform = `rotate(${def.rotation}deg)`;
     el.style.transformOrigin = "center center";
   }
-  el.textContent = def.label;
+  // Legacy persisted defs can lack label (pre-schema-validation data).
+  el.textContent = String(def.label ?? "STAMP");
   return el;
 }
 
@@ -5391,10 +5399,10 @@ const APP_TOOL_DEFS: AppToolDef[] = [
       "Add one or more annotations (highlight, note, rectangle, circle, line, stamp, image, freetext). Each needs id, type, page, and type-specific geometry.",
     inputSchema: z.object({
       annotations: z
-        .array(z.record(z.string(), z.any()))
+        .array(AnnotationDefSchema)
         .min(1)
         .describe(
-          "Annotation objects. Each needs: id, type, page, plus type-specific fields (x, y, width, height, rects, color, content, etc.)",
+          "Annotation objects. Each needs: id, type, page, plus the type's own required fields (rects for highlight/underline/strikethrough, content for note/freetext, label for stamp, imageUrl for image, geometry for the shapes).",
         ),
     }),
     handler: async ({ annotations }) =>
@@ -5413,7 +5421,7 @@ const APP_TOOL_DEFS: AppToolDef[] = [
       "Patch existing annotations by id. Only id and type are required; other fields are merged.",
     inputSchema: z.object({
       annotations: z
-        .array(z.record(z.string(), z.any()))
+        .array(AnnotationUpdateSchema)
         .min(1)
         .describe("Partial annotation objects. Each needs: id, type."),
     }),
@@ -5650,11 +5658,11 @@ if (PDF_APP_CONFIG.splitAppTools) {
 - For highlights/underlines, each rect's y is the TOP of the highlighted region.
 
 Annotation types:
-• highlight: rects:[{x,y,width,height}], color?, content? • underline: rects:[{x,y,w,h}], color?
-• strikethrough: rects:[{x,y,w,h}], color? • note: x, y, content, color?
+• highlight: rects:[{x,y,width,height}], color?, content? • underline: rects:[{x,y,width,height}], color?
+• strikethrough: rects:[{x,y,width,height}], color? • note: x, y, content, color?
 • rectangle: x, y, width, height, color?, fillColor?, rotation? • circle: x, y, width, height, color?, fillColor?
 • line: x1, y1, x2, y2, color? • freetext: x, y, content, fontSize?, color?
-• stamp: x, y, label (any text, e.g. APPROVED, DRAFT, CONFIDENTIAL), color?, rotation?
+• stamp: x, y, label (REQUIRED — the stamp's text, e.g. APPROVED, DRAFT, CONFIDENTIAL), color?, rotation?
 • image: imageUrl (required), x?, y?, width?, height?, mimeType?, rotation?, aspect?
 
 TIP: For text annotations, prefer highlight_text (auto-finds text) over manual rects.

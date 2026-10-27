@@ -80,6 +80,22 @@ test.describe("PDF app-side interact tool", () => {
     );
     expect(unknown.isError).toBe(true);
     expect(unknown.content[0]?.text).toContain("Unknown action");
+
+    // Per-type annotation contract: a stamp sent with `content` instead of
+    // `label` (the classic mix-up that used to render as the literal text
+    // "undefined") is rejected with an error naming the missing field.
+    const badStamp = await callAppInteract(
+      page,
+      {
+        action: "add_annotations",
+        annotations: [
+          { id: "s1", type: "stamp", page: 1, x: 100, y: 100, content: "OOPS" },
+        ],
+      },
+      9008,
+    );
+    expect(badStamp.isError).toBe(true);
+    expect(badStamp.content[0]?.text).toContain("label");
   });
 
   test("interact runs a commands batch sequentially with 1:1 slots", async ({
